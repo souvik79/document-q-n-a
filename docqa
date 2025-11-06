@@ -1,0 +1,336 @@
+#!/usr/bin/env python3
+"""
+Quick command wrapper for Document Q&A System.
+Allows specifying project ID with commands for convenience.
+"""
+
+import sys
+import os
+from pathlib import Path
+
+# Add current directory to path
+sys.path.insert(0, str(Path(__file__).parent))
+
+# Store last project ID in a file
+PROJECT_FILE = Path(__file__).parent / "data" / ".last_project"
+
+
+def save_project_id(project_id: int):
+    """Save the last used project ID."""
+    PROJECT_FILE.parent.mkdir(exist_ok=True)
+    PROJECT_FILE.write_text(str(project_id))
+
+
+def load_project_id() -> int:
+    """Load the last used project ID."""
+    if PROJECT_FILE.exists():
+        try:
+            return int(PROJECT_FILE.read_text().strip())
+        except:
+            return None
+    return None
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage:")
+        print("  docqa use <project_id>              - Set active project")
+        print("  docqa add <file>                    - Add document to active project")
+        print("  docqa add-url <url>                 - Add URL to active project")
+        print("  docqa ask \"<question>\"              - Ask a question")
+        print("  docqa list                          - List documents in active project")
+        print("  docqa projects                      - List all projects")
+        print("  docqa stats                         - Show project stats")
+        print("  docqa chat                          - Start interactive chat")
+        print()
+        print("Full CLI: python cli.py --help")
+        return
+
+    command = sys.argv[1]
+
+    from src.session_manager import SessionManager
+    from src.document_processor import DocumentProcessor
+    from src.web_scraper import WebScraper
+    from src.vector_store import VectorStoreManager
+    from src.qa_chain import QAChain
+    from src.database import get_db_manager
+
+    if command == "use":
+        if len(sys.argv) < 3:
+            print("❌ Usage: docqa use <project_id>")
+            return
+
+        project_id = int(sys.argv[2])
+        sm = SessionManager()
+        project = sm.get_project(project_id)
+
+        if not project:
+            print(f"❌ Project {project_id} not found")
+            return
+
+        save_project_id(project_id)
+        print(f"✅ Active project set to: {project.name} (ID: {project_id})")
+
+        # Show stats
+        stats = sm.get_project_stats(project_id)
+        print(f"   Documents: {stats.get('total_documents', 0)}")
+        print(f"   Conversations: {stats.get('total_conversations', 0)}")
+
+    elif command == "projects":
+        sm = SessionManager()
+        projects = sm.get_all_projects()
+
+        if not projects:
+            print("📭 No projects found")
+            print("Create one with: python cli.py project create \"Project Name\"")
+            return
+
+        current_id = load_project_id()
+        print(f"\n📂 Your Projects ({len(projects)}):")
+        print("-" * 60)
+
+        for project in projects:
+            marker = "→" if project.id == current_id else " "
+            print(f"{marker} ID: {project.id} - {project.name}")
+            if project.description:
+                print(f"  Description: {project.description}")
+
+        print()
+        if current_id:
+            print(f"Active project: {current_id}")
+        else:
+            print("No active project. Use: docqa use <id>")
+
+    elif command in ["add", "add-url", "ask", "list", "stats", "chat"]:
+        project_id = load_project_id()
+
+        if not project_id:
+            print("❌ No active project set")
+            print("Use: docqa use <project_id>")
+            print("Or: docqa projects  (to see all projects)")
+            return
+
+        sm = SessionManager()
+        project = sm.get_project(project_id)
+
+        if not project:
+            print(f"❌ Active project {project_id} not found")
+            print("Set a valid project with: docqa use <id>")
+            return
+
+        if command == "add":
+            if len(sys.argv) < 3:
+                print("❌ Usage: docqa add <file_path>")
+                return
+
+            file_path = Path(sys.argv[2]).resolve()
+
+            if not file_path.exists():
+                print(f"❌ File not found: {file_path}")
+                return
+
+            print(f"📄 Processing: {file_path.name}")
+
+            try:
+                processor = DocumentProcessor()
+
+                # Validate and process
+                validation = processor.validate_file(file_path)
+                if not validation["valid"]:
+                    print(f"❌ {validation['error']}")
+                    return
+
+                print("   Creating chunks...")
+                chunks, metadata = processor.process_file(file_path)
+                print(f"   ✓ {len(chunks)} chunks created")
+
+                # Add to database
+                doc_result = sm.add_document(
+                    project_id=project_id,
+                    source_type="file",
+                    source_path=str(file_path),
+                    title=file_path.name,
+                    metadata=metadata
+                )
+
+                if not doc_result["success"]:
+                    print(f"❌ {doc_result['error']}")
+                    return
+
+                document_id = doc_result["document"]["id"]
+
+                # Add to vector store
+                print("   Adding to vector database...")
+                vs = VectorStoreManager(project_id)
+                vs_result = vs.add_documents(chunks, document_id=document_id)
+
+                if vs_result["success"]:
+                    db = get_db_manager()
+                    db.update_document_status(document_id, "processed")
+                    print(f"✅ Document added! (ID: {document_id})")
+                else:
+                    print(f"❌ {vs_result['error']}")
+
+            except Exception as e:
+                print(f"❌ Error: {e}")
+
+        elif command == "add-url":
+            if len(sys.argv) < 3:
+                print("❌ Usage: docqa add-url <url>")
+                return
+
+            url = sys.argv[2]
+
+            print(f"🌐 Processing: {url}")
+
+            try:
+                scraper = WebScraper()
+
+                # Validate
+                validation = scraper.validate_url(url)
+                if not validation["valid"]:
+                    print(f"❌ {validation['error']}")
+                    return
+
+                print("   Fetching content...")
+                chunks, metadata = scraper.process_url(url, project_id)
+                print(f"   ✓ {len(chunks)} chunks created")
+
+                # Add to database
+                doc_result = sm.add_document(
+                    project_id=project_id,
+                    source_type="url",
+                    source_path=url,
+                    title=metadata.get("title", url),
+                    metadata=metadata
+                )
+
+                if not doc_result["success"]:
+                    print(f"❌ {doc_result['error']}")
+                    return
+
+                document_id = doc_result["document"]["id"]
+
+                # Add to vector store
+                print("   Adding to vector database...")
+                vs = VectorStoreManager(project_id)
+                vs_result = vs.add_documents(chunks, document_id=document_id)
+
+                if vs_result["success"]:
+                    db = get_db_manager()
+                    db.update_document_status(document_id, "processed")
+                    print(f"✅ URL added! (ID: {document_id})")
+                    print(f"   Title: {metadata.get('title', 'N/A')}")
+                else:
+                    print(f"❌ {vs_result['error']}")
+
+            except Exception as e:
+                print(f"❌ Error: {e}")
+
+        elif command == "list":
+            documents = sm.get_project_documents(project_id)
+
+            if not documents:
+                print("📭 No documents in this project")
+                return
+
+            print(f"\n📚 Documents ({len(documents)}):")
+            print("-" * 60)
+
+            for doc in documents:
+                print(f"  [{doc['id']}] {doc['title']}")
+                print(f"      Type: {doc['source_type']} | Status: {doc['status']}")
+
+        elif command == "stats":
+            stats = sm.get_project_stats(project_id)
+            size = sm.get_project_size(project_id)
+
+            print(f"\n📊 Project: {project.name}")
+            print("-" * 60)
+            print(f"  Documents: {stats.get('total_documents', 0)} ({stats.get('processed_documents', 0)} processed)")
+            print(f"  Conversations: {stats.get('total_conversations', 0)}")
+            print(f"  Storage: {size['total_mb']} MB")
+
+        elif command == "ask":
+            if len(sys.argv) < 3:
+                print("❌ Usage: docqa ask \"Your question\"")
+                return
+
+            question = " ".join(sys.argv[2:])
+
+            print(f"\n💬 {question}")
+            print("-" * 60)
+            print("🤔 Thinking...\n")
+
+            try:
+                qa = QAChain(project_id)
+                result = qa.ask(question)
+
+                if result["success"]:
+                    print("🤖 Answer:")
+                    print(result["answer"])
+                    print()
+                    print(f"⏱️  {result['metadata']['query_time_seconds']}s")
+
+                    # Save conversation
+                    sm.add_conversation(
+                        project_id=project_id,
+                        question=question,
+                        answer=result["answer"],
+                        sources=result.get("source_document_ids", []),
+                        metadata=result["metadata"]
+                    )
+                else:
+                    print(f"❌ {result['error']}")
+
+            except Exception as e:
+                print(f"❌ Error: {e}")
+
+        elif command == "chat":
+            print("\n💬 Interactive Chat")
+            print("-" * 60)
+            print("Type your questions (or 'quit' to exit)\n")
+
+            qa = QAChain(project_id)
+
+            while True:
+                try:
+                    question = input("You: ").strip()
+
+                    if not question:
+                        continue
+
+                    if question.lower() in ['quit', 'exit', 'q']:
+                        print("👋 Goodbye!")
+                        break
+
+                    print("🤖 ", end="", flush=True)
+
+                    result = qa.ask(question)
+
+                    if result["success"]:
+                        print(result["answer"])
+
+                        sm.add_conversation(
+                            project_id=project_id,
+                            question=question,
+                            answer=result["answer"],
+                            sources=result.get("source_document_ids", []),
+                            metadata=result["metadata"]
+                        )
+                    else:
+                        print(f"Error: {result['error']}")
+
+                    print()
+
+                except KeyboardInterrupt:
+                    print("\n👋 Goodbye!")
+                    break
+
+    else:
+        print(f"❌ Unknown command: {command}")
+        print("Run 'docqa' for usage")
+
+
+if __name__ == "__main__":
+    main()

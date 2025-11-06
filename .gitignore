@@ -1,0 +1,170 @@
+# ============================================
+# SENSITIVE FILES - NEVER COMMIT
+# ============================================
+
+# Environment variables (contains API keys)
+.env
+.env.local
+.env.*.local
+
+# API Keys and secrets
+*_key.txt
+*_secret.txt
+secrets/
+
+# ============================================
+# PYTHON
+# ============================================
+
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# ============================================
+# DATA & UPLOADS
+# ============================================
+
+# Application data (contains user uploads and generated content)
+data/
+!data/.gitkeep
+
+# Backup files
+docs_backup/
+*.backup
+*.bak
+
+# Generated assets
+generated/
+uploads/
+cache/
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================
+# IDEs & EDITORS
+# ============================================
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# PyCharm / IntelliJ
+.idea/
+*.iml
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Vim
+*.swp
+*.swo
+*~
+.vim/
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================
+# JUPYTER NOTEBOOK
+# ============================================
+
+.ipynb_checkpoints
+*.ipynb
+
+# ============================================
+# OS GENERATED
+# ============================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.Trash-*
+
+# ============================================
+# LOGS & TEMPORARY FILES
+# ============================================
+
+*.log
+logs/
+*.tmp
+*.temp
+
+# ============================================
+# STREAMLIT
+# ============================================
+
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# ============================================
+# GIT
+# ============================================
+
+*.orig
+.git-rewrite/
+
+# ============================================
+# NODE (if frontend is added later)
+# ============================================
+
+node_modules/
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
